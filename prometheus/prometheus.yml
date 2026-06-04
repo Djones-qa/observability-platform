@@ -8,7 +8,7 @@ global:
 
 # Load alert rules
 rule_files:
-  - /etc/prometheus/alert-rules.yml
+  - alert-rules.yml
 
 # Alertmanager configuration
 alerting:
