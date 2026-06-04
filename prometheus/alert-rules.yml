@@ -1,0 +1,114 @@
+groups:
+  - name: service_health
+    interval: 30s
+    rules:
+      # Service is down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been unreachable for more than 1 minute."
+          runbook_url: "https://github.com/Djones-qa/observability-platform/wiki/runbooks/service-down"
+
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(http_server_duration_count{http_status_code=~"5.."}[5m])
+            /
+            rate(http_server_duration_count[5m])
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High error rate on {{ $labels.job }}"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+  - name: performance
+    interval: 30s
+    rules:
+      # High request latency (p99 > 1s)
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_server_duration_bucket[5m])
+          ) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High p99 latency on {{ $labels.job }}"
+          description: "p99 latency is {{ $value }}ms, exceeding 1s threshold."
+
+      # API Gateway high latency (p95 > 500ms)
+      - alert: APIGatewayHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(api_gateway_request_duration_ms_bucket[5m])
+          ) > 500
+        for: 3m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "API Gateway p95 latency is high"
+          description: "p95 latency is {{ $value }}ms."
+
+  - name: inventory
+    interval: 60s
+    rules:
+      # Low stock warning
+      - alert: LowInventoryStock
+        expr: inventory_stock_level < 10
+        for: 5m
+        labels:
+          severity: warning
+          team: inventory
+        annotations:
+          summary: "Low stock for product {{ $labels.product_id }}"
+          description: "Stock level is {{ $value }} units for SKU {{ $labels.sku }}."
+
+      # Out of stock
+      - alert: OutOfStock
+        expr: inventory_stock_level == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: inventory
+        annotations:
+          summary: "Product {{ $labels.product_id }} is out of stock"
+          description: "SKU {{ $labels.sku }} has 0 available units."
+
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # OTel Collector memory pressure
+      - alert: OtelCollectorHighMemory
+        expr: |
+          otelcol_process_memory_rss > 400 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "OTel Collector memory usage is high"
+          description: "RSS memory is {{ $value | humanize1024 }}B."
+
+      # Prometheus storage filling up
+      - alert: PrometheusStorageFilling
+        expr: |
+          (prometheus_tsdb_storage_blocks_bytes / prometheus_tsdb_head_chunks_storage_size_bytes) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Prometheus storage is filling up"
+          description: "Prometheus TSDB is at {{ $value | humanizePercentage }} capacity."

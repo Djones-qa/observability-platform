@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ─────────────────────────────────────────
+  # Lint & Type Check
+  # ─────────────────────────────────────────
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api-gateway, order-service, inventory-service]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: services/${{ matrix.service }}
+        run: npm ci
+
+      - name: Type check
+        working-directory: services/${{ matrix.service }}
+        run: npm run typecheck
+
+  # ─────────────────────────────────────────
+  # Build Services
+  # ─────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    strategy:
+      matrix:
+        service: [api-gateway, order-service, inventory-service]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: services/${{ matrix.service }}
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: services/${{ matrix.service }}
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-dist
+          path: services/${{ matrix.service }}/dist
+          retention-days: 1
+
+  # ─────────────────────────────────────────
+  # Validate Configs
+  # ─────────────────────────────────────────
+  validate-configs:
+    name: Validate Configs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate OTel Collector config
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/otel-collector/otel-collector-config.yaml:/tmp/config.yaml:ro \
+            otel/opentelemetry-collector-contrib:0.91.0 \
+            validate --config /tmp/config.yaml
+
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/prometheus:/etc/prometheus:ro \
+            prom/prometheus:v2.48.1 \
+            promtool check config /etc/prometheus/prometheus.yml
+
+      - name: Validate alert rules
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/prometheus:/etc/prometheus:ro \
+            prom/prometheus:v2.48.1 \
+            promtool check rules /etc/prometheus/alert-rules.yml
+
+      - name: Validate Alertmanager config
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro \
+            -e SLACK_WEBHOOK_URL=https://hooks.slack.com/services/PLACEHOLDER \
+            prom/alertmanager:v0.26.0 \
+            amtool check-config /etc/alertmanager/alertmanager.yml
+
+  # ─────────────────────────────────────────
+  # Validate Kubernetes Manifests
+  # ─────────────────────────────────────────
+  validate-k8s:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform.tar.gz
+          chmod +x kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate K8s manifests
+        run: |
+          find k8s -name '*.yaml' | xargs kubeconform \
+            -strict \
+            -summary \
+            -kubernetes-version 1.28.0
+
+  # ─────────────────────────────────────────
+  # Docker Build Check
+  # ─────────────────────────────────────────
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        service: [api-gateway, order-service, inventory-service]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/${{ matrix.service }}
+          push: false
+          tags: observability/${{ matrix.service }}:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
