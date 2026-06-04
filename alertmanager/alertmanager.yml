@@ -1,6 +1,7 @@
 global:
   resolve_timeout: 5m
-  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  # Set SLACK_WEBHOOK_URL env var at runtime; this placeholder keeps config valid for linting
+  slack_api_url: 'https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/PLACEHOLDER'
 
 # Notification templates
 templates:
