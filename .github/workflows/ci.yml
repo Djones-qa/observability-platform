@@ -27,12 +27,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
 
       - name: Install dependencies
         working-directory: services/${{ matrix.service }}
-        run: npm ci
+        run: npm install
 
       - name: Type check
         working-directory: services/${{ matrix.service }}
@@ -56,12 +54,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
 
       - name: Install dependencies
         working-directory: services/${{ matrix.service }}
-        run: npm ci
+        run: npm install
 
       - name: Build TypeScript
         working-directory: services/${{ matrix.service }}
@@ -86,14 +82,12 @@ jobs:
 
       - name: Install promtool and amtool
         run: |
-          # Install promtool via Prometheus release binary
           PROM_VERSION=2.48.1
           curl -sSLo prometheus.tar.gz \
             https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz
           tar -xzf prometheus.tar.gz
           sudo mv prometheus-${PROM_VERSION}.linux-amd64/promtool /usr/local/bin/promtool
 
-          # Install amtool via Alertmanager release binary
           AM_VERSION=0.26.0
           curl -sSLo alertmanager.tar.gz \
             https://github.com/prometheus/alertmanager/releases/download/v${AM_VERSION}/alertmanager-${AM_VERSION}.linux-amd64.tar.gz
@@ -107,11 +101,7 @@ jobs:
         run: promtool check rules prometheus/alert-rules.yml
 
       - name: Validate Alertmanager config
-        env:
-          SLACK_WEBHOOK_URL: https://hooks.slack.com/services/PLACEHOLDER
-        run: |
-          # amtool requires the actual file path
-          amtool check-config alertmanager/alertmanager.yml
+        run: amtool check-config alertmanager/alertmanager.yml
 
       - name: Validate OTel Collector config
         run: |
